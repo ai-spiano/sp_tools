@@ -1,0 +1,7 @@
+data
+debug/**
+generate/**
+outputs/**
+qr_image/images/**
+qr_image/labels/**
+qr_image/test/**

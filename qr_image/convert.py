@@ -101,6 +101,7 @@ def decode(filepath, labeldir='./labels/',scale = 2, arc_scale=0.01, qr_scale=0.
         rect_img = cv2.warpPerspective(resize_image, M_parent2rect, (parent_w, parent_h))
 
         qr_roi = rect_img[:int(parent_h * qr_scale), :int(parent_h * qr_scale)]
+        cv2.imwrite(os.path.join(debugdir, 'qr_roi.png'), qr_roi)
         qr_code = pyzbar.decode(qr_roi)
         # datamatrix_code = pylibdmtx.decode(datamatrix)
         
@@ -112,7 +113,12 @@ def decode(filepath, labeldir='./labels/',scale = 2, arc_scale=0.01, qr_scale=0.
     
 
     # 从二维码中获得标签名
-    labelname = qr_code[0].data.decode('utf-8')
+    info = qr_code[0].data.decode('utf-8').split('\n')
+    labelname = info[0]
+    pad = int(info[1])
+    border_size = int(info[2])
+    
+
 
     # 读取 label 图并获取其宽高
     label = cv2.imread(os.path.join(labeldir, labelname))
@@ -120,10 +126,16 @@ def decode(filepath, labeldir='./labels/',scale = 2, arc_scale=0.01, qr_scale=0.
         print(f'未找到标签图 {labelname}')
         return None
 
-    label[np.all(label != (255, 255, 255), axis=2)] = (0, 0, 0)
+    # 对标签进行pad
+    padlabel = cv2.copyMakeBorder(label, pad, 0, 0, 0, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    # 对标签框进行偏移(如果是框数据的话)
+    # TODO
+    #############################################
+
+    padlabel[np.all(padlabel != (255, 255, 255), axis=2)] = (0, 0, 0)
     # 将 label 图取反：白变黑，黑变白
-    label = cv2.bitwise_not(label)
-    label_h, label_w = label.shape[:2]
+    padlabel = cv2.bitwise_not(padlabel)
+    label_h, label_w = padlabel.shape[:2]
 
     # 将 label 的四个角点映射到原图对应 parent_ordered 的位置
     label_pts = np.array([[0, 0], [label_w, 0], [label_w, label_h], [0, label_h]], dtype=np.float32)
@@ -133,13 +145,14 @@ def decode(filepath, labeldir='./labels/',scale = 2, arc_scale=0.01, qr_scale=0.
     # 计算 原图 到标签的透视变换矩阵
     M_parent2label = cv2.getPerspectiveTransform(parent_pts , label_pts)
     warped_image = cv2.warpPerspective(src_image, M_parent2label, (label_w, label_h))
+    warped_image = warped_image[pad:]
     if len(debugdir):
         cv2.imwrite(os.path.join(debugdir, 'warped_image.png'), warped_image)
 
     # 计算label到原图的透视变换矩阵
     M_label2parent = cv2.getPerspectiveTransform(label_pts, parent_pts)
-    # 将 label 透视变换到原图
-    warped_label = cv2.warpPerspective(label, M_label2parent, (src_image.shape[1], src_image.shape[0]))
+
+    warped_label = cv2.warpPerspective(padlabel, M_label2parent, (src_image.shape[1], src_image.shape[0]))
     if len(debugdir):
         cv2.imwrite(os.path.join(debugdir, 'warped_label.png'), warped_label)
 
@@ -148,22 +161,26 @@ def decode(filepath, labeldir='./labels/',scale = 2, arc_scale=0.01, qr_scale=0.
         alpha = 0.4
         overlay = cv2.addWeighted(src_image, 1 - alpha, warped_label, alpha, 0)
         cv2.imwrite(os.path.join(debugdir, 'overlay.png'), overlay)
+
+        
+        overlay = cv2.addWeighted(warped_image, 1 - alpha, padlabel, alpha, 0)
+        cv2.imwrite(os.path.join(debugdir, 'overlay2.png'), overlay)
     
     return M_parent2label, warped_image, M_label2parent, warped_label
 
 
 if __name__ == '__main__':
-    testdir = './test' # 拍照图片目录
-    labeldir = './labels' # 分割标签目录
+    testdir = '/home/zjx/work/gitwork/sp_tools/qr_image/test' # 拍照图片目录
+    labeldir = '/home/zjx/work/gitwork/sp_tools/qr_image/labels' # 分割标签目录
     outputdir = './outputs' # 输出目录
-    debugdir = '' # 调试目录
+    debugdir = './debug' # 调试目录
 
     os.makedirs(outputdir, exist_ok=True)
 
     # 解码二维码
     for filename in os.listdir(testdir):
         filepath = os.path.join(testdir, filename)
-        result = decode(filepath, labeldir=labeldir, scale = 2, arc_scale=0.01, qr_scale=0.12,debug=debugdir)
+        result = decode(filepath, labeldir=labeldir, scale = 2, arc_scale=0.01, qr_scale=0.1,debugdir=debugdir)
         if result is None:
             print(f'转换失败: {filename}')
         else:
