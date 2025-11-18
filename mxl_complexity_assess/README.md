@@ -1,5 +1,4 @@
-
-# 简单的 MusicXML / MXL 乐谱复杂度评估脚本
+# MusicXML / MXL 乐谱复杂度评估脚本
 
 * 功能：
   - 扫描单个文件或一个目录下的所有 .mxl / .musicxml / .xml
