@@ -3,28 +3,16 @@ import numpy as np
 import cv2
 import qrcode
 
-def make_black_border(image, border_size=20):
-    border_image = np.zeros_like(image)
-    border_image[border_size:-border_size, border_size:-border_size] = image[border_size:-border_size, border_size:-border_size]
-    return border_image
 
 def make_border_qr(filepath, border_scale=0.009, qr_scale=0.08):
     image = cv2.imread(filepath, cv2.IMREAD_COLOR)
     pad = int(image.shape[0] * qr_scale)
-    pad_image = cv2.copyMakeBorder(image, pad, 0, 0, 0, cv2.BORDER_CONSTANT, value=[255, 255, 255])
-
     border_size = int(image.shape[1]*border_scale)
-    border_image = make_black_border(pad_image, border_size)
+
+    pad_image = cv2.copyMakeBorder(image, pad, 0, 0, 0, cv2.BORDER_CONSTANT, value=[255, 255, 255])
+    border_image = cv2.copyMakeBorder(pad_image, border_size, border_size, border_size, border_size, cv2.BORDER_CONSTANT, value=[0, 0, 0])
 
     fmt = f'{os.path.basename(filepath)}\n{pad}\n{border_size}'
-
-    # qr = pylibdmtx.encode(fmt, size='16x48',)
-    # qr = np.array(Image.frombytes('RGB', (qr.width, qr.height), qr.pixels))
-
-    # barc = barcode.get_barcode_class('code128')
-    # qr = barc(fmt, writer=barcode.writer.ImageWriter())
-    # qr = np.array(qr.render())
-
     qr = np.array(qrcode.make(
         data=fmt,
         error_correction=qrcode.ERROR_CORRECT_H,
@@ -34,8 +22,6 @@ def make_border_qr(filepath, border_scale=0.009, qr_scale=0.08):
     
     scale = float(pad) / qr.shape[0]
     qr = cv2.resize(qr, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
-    # print(filepath, image.shape, qr.shape, qr.shape[0]/image.shape[0], qr.shape[1]/image.shape[1], border_size/image.shape[1])
-    # print(qr.shape)
 
     border_image[2*border_size:2*border_size+qr.shape[0], 2*border_size:2*border_size+qr.shape[1]] = qr
 
