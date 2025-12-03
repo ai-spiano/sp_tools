@@ -1,4 +1,5 @@
 import os
+from uuid import uuid4
 import numpy as np
 import cv2
 from pyzbar import pyzbar
@@ -153,6 +154,7 @@ def decode(filepath, labeldir='./labels/',scale = 2, arc_scale=0.01, qr_scale=0.
 
     # 读取 label 图并获取其宽高
     label = cv2.imread(os.path.join(labeldir, labelname))
+    label_size = label.shape
     if label is None:
         print(f'未找到标签图 {labelname}')
         return None
@@ -200,38 +202,41 @@ def decode(filepath, labeldir='./labels/',scale = 2, arc_scale=0.01, qr_scale=0.
         overlay = cv2.addWeighted(warped_image, 1 - alpha, label, alpha, 0)
         cv2.imwrite(os.path.join(debugdir, 'overlay2.png'), overlay)
     
-    return pad, border_size, M_child2label, warped_image, M_label2child, warped_label
+    return label_size, labelname, pad, border_size, M_child2label, warped_image, M_label2child, warped_label
 
 
 
-def process_single_image(filename, testdir, outputdir, labeldir):
+def process_single_image(filepath, outputdir, labeldir):
     """单张图片处理函数，供多进程调用"""
-    filepath = os.path.join(testdir, filename)
-    subdir = os.path.join(outputdir, os.path.splitext(filename)[0])
+    new_dir_name = str(uuid4())
+    subdir = os.path.join(outputdir, new_dir_name)
     os.makedirs(subdir, exist_ok=True)
+    shutil.copy(filepath, os.path.join(subdir, 'src_image.png'))
     result = decode(filepath, labeldir=labeldir, scale=1,
                     arc_scale=0.01, qr_scale=0.15, min_area_scale=0.5, debugdir=subdir)
     if result is None:
-        print(f'转换失败: {filename}')
+        print(f'转换失败: {filepath}')
         return None
     else:
-        print(f'转换成功: {filename}')
-        pad, border_size, M_src2label, warped_image, M_label2src, warped_label = result
+        print(f'转换成功: {filepath}')
+        label_size, labelname, pad, border_size, M_src2label, warped_image, M_label2src, warped_label = result
         info = {
             'pad': pad,
+            'labelname': labelname,
+            'label_size': label_size,
             'border_size': border_size,
             'M_label2src': M_label2src,
             'M_src2label': M_src2label,
         }
-        np.save(os.path.join(subdir, f'{os.path.splitext(filename)[0]}_info.npy'), info)
-        cv2.imwrite(os.path.join(subdir, f'{os.path.splitext(filename)[0]}_warped_image.png'), warped_image)
-        cv2.imwrite(os.path.join(subdir, f'{os.path.splitext(filename)[0]}_warped_label.png'), warped_label)
-        return filename
+        np.save(os.path.join(subdir, f'{new_dir_name}_info.npy'), info)
+        cv2.imwrite(os.path.join(subdir, f'{new_dir_name}_warped_image.png'), warped_image)
+        cv2.imwrite(os.path.join(subdir, f'{new_dir_name}_warped_label.png'), warped_label)
+        return filepath
 
 if __name__ == '__main__':
-    testdir = '/data/xml_data/photos/2025112001' # 拍照图片目录
-    labeldir = '/home/zjx/work/gitwork/sp_tools/data/xml_data/images' # 分割标签目录
-    outputdir = os.path.basename(testdir) # './2025111902' # 输出目录
+    testdir = '/data/xml_data/photos/2025111901' # 拍照图片目录
+    labeldir = '/data/xml_data/images' # 分割标签目录
+    outputdir = "/data/xml_data/photos_cvt" # 输出目录
     debugdir = './debugs' # 调试目录
     
     if os.path.exists(outputdir):
@@ -239,11 +244,23 @@ if __name__ == '__main__':
     os.makedirs(outputdir, exist_ok=True)
 
     # 解码二维码（多进程）
-    filenames = [f for f in os.listdir(testdir) if os.path.isfile(os.path.join(testdir, f))]
+    filepaths = [os.path.join(testdir, f) for f in os.listdir(testdir) if os.path.isfile(os.path.join(testdir, f))]
+
+    # filepaths = []
+    # for d in os.listdir(testdir):
+    #     if d.endswith('pdf'):
+    #         continue
+    #     fdir = os.path.join(testdir, d)
+    #     if not os.path.isdir(fdir):
+    #         continue
+    #     for f in os.listdir(fdir):
+    #         filepath = os.path.join(fdir, f)
+    #         filepaths.append(filepath)
+
     # 根据CPU核心数设置进程池大小，留1核心给系统
     pool_size = max(1, cpu_count() - 1)
     with Pool(processes=pool_size) as pool:
         # 使用functools.partial固定其他参数
-        worker = functools.partial(process_single_image, testdir=testdir, outputdir=outputdir, labeldir=labeldir)
+        worker = functools.partial(process_single_image, outputdir=outputdir, labeldir=labeldir)
         # 并行处理所有图片
-        pool.map(worker, filenames)
+        pool.map(worker, filepaths)
