@@ -15,11 +15,11 @@ def save_step(debugdir: str, name: str, img):
 
 
 def detect_corners_region_edge(
-        img,
-        original_img,
-        pad,
-        child_ordered=None,
-        debugdir="",
+    img,
+    original_img,
+    pad,
+    child_ordered=None,
+    debugdir="",
 ):
 
     # ---------- Step 0: 读取拍照图片 ----------
@@ -54,10 +54,7 @@ def detect_corners_region_edge(
     # 得到黑框 mask
     mask_black_frame = (labels == max_label).astype(np.uint8) * 255
 
-
-
     def fill_small_holes(bin_mask: np.ndarray, max_hole_area: int = 5000) -> np.ndarray:
-
 
         h, w = bin_mask.shape[:2]
 
@@ -76,20 +73,13 @@ def detect_corners_region_edge(
         for label in range(1, num_labels):  # 0 是 background 的背景
             x, y, cw, ch, area = stats[label]
 
-            touches_border = (
-                x == 0 or
-                y == 0 or
-                x + cw == w or
-                y + ch == h
-            )
+            touches_border = x == 0 or y == 0 or x + cw == w or y + ch == h
 
             # 条件：不碰边界 且 面积不大 ⇒ 认为是洞
             if (not touches_border) and (area <= max_hole_area):
                 filled[labels == label] = 255
 
         return filled
-
-
 
     mask_black_frame = fill_small_holes(mask_black_frame)
 
@@ -98,10 +88,9 @@ def detect_corners_region_edge(
     clean_bin_img = bin_img
 
     # ---------- Step 3: 粗线（白框）的中心线 ----------
-    
+
     mask = mask_black_frame
     H, W = mask.shape
-
 
     # ---- Step: 估计白线线宽 thickness ----
 
@@ -145,7 +134,7 @@ def detect_corners_region_edge(
 
     # ---- 最终厚度 = 众数（最常见的 run length） ----
     if len(widths) == 0:
-        thickness = 20   # fallback
+        thickness = 20  # fallback
     else:
         # 取出现次数最多的宽度
         vals, counts = np.unique(widths, return_counts=True)
@@ -153,12 +142,11 @@ def detect_corners_region_edge(
 
     # print("Estimated line thickness =", thickness)
 
-
     line_thickness = thickness
     # 允许一定浮动
     max_thickness_for_side = line_thickness * 2
     min_thickness_for_side = line_thickness * 0.5
-    
+
     other_min_side = int(min_thickness_for_side * 0.7)
 
     # 1) 竖直边：对每一行找“左边框”和“右边框”的中心点
@@ -177,7 +165,10 @@ def detect_corners_region_edge(
                 continue
             mid = int((s + e) / 2.0 + 0.5)
 
-            if np.sum(mask[y - other_min_side: y + other_min_side, mid] == 255) < other_min_side*2:
+            if (
+                np.sum(mask[y - other_min_side : y + other_min_side, mid] == 255)
+                < other_min_side * 2
+            ):
                 continue
 
             if mid < W / 2.0:
@@ -192,7 +183,6 @@ def detect_corners_region_edge(
     top_centerline = []
     bottom_centerline = []
 
-
     for x in range(W):
         ys = np.where(mask[:, x] == 255)[0]
         if len(ys) == 0:
@@ -205,7 +195,10 @@ def detect_corners_region_edge(
                 continue
 
             mid = int((s + e) / 2.0 + 0.5)
-            if np.sum(mask[mid, x - other_min_side: x + other_min_side] == 255) < other_min_side*2:
+            if (
+                np.sum(mask[mid, x - other_min_side : x + other_min_side] == 255)
+                < other_min_side * 2
+            ):
                 continue
 
             mid = (s + e) / 2.0
@@ -222,9 +215,7 @@ def detect_corners_region_edge(
     top_centerline = top_centerline[np.argsort(top_centerline[:, 1])]
     bottom_centerline = bottom_centerline[np.argsort(bottom_centerline[:, 1])]
 
-
     # nms
-
 
     # 汇总
     centerlines = {
@@ -238,9 +229,9 @@ def detect_corners_region_edge(
     vis = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
 
     colors = {
-        "left":   (0, 0, 255),    # 红
-        "right":  (255, 0, 0),
-        "top":    (0, 255, 0),
+        "left": (0, 0, 255),  # 红
+        "right": (255, 0, 0),
+        "top": (0, 255, 0),
         "bottom": (255, 0, 255),
     }
 
@@ -251,7 +242,6 @@ def detect_corners_region_edge(
             cv2.circle(vis, (int(w), int(h)), 1, col, -1)
 
     save_step(debugdir, "step3_thick_border_centerlines.jpg", vis)
-
 
     # ---------- Step 4: 用局部拟合延长线求角点 ----------
 
@@ -274,9 +264,9 @@ def detect_corners_region_edge(
 
         # 与 x=W-1 的交点
         if abs(b) > 1e-6:
-            yW = -(c + a*(W-1)) / b
+            yW = -(c + a * (W - 1)) / b
             if 0 <= yW < H:
-                pts.append((W-1, int(yW)))
+                pts.append((W - 1, int(yW)))
 
         # 与 y=0 的交点
         if abs(a) > 1e-6:
@@ -286,14 +276,13 @@ def detect_corners_region_edge(
 
         # 与 y=H-1 的交点
         if abs(a) > 1e-6:
-            xH = -(c + b*(H-1)) / a
+            xH = -(c + b * (H - 1)) / a
             if 0 <= xH < W:
-                pts.append((int(xH), H-1))
+                pts.append((int(xH), H - 1))
 
         # 至少两个点才能画线
         if len(pts) >= 2:
             cv2.line(vis, pts[0], pts[1], color, thickness)
-
 
     def fit_line(points):
         """
@@ -301,8 +290,8 @@ def detect_corners_region_edge(
         输入: points (N,2)
         输出: (a,b,c)
         """
-        x = points[:,1]
-        y = points[:,0]
+        x = points[:, 1]
+        y = points[:, 0]
         # 拟合 y = kx + b
         A = np.vstack([x, np.ones_like(x)]).T
         k, b = np.linalg.lstsq(A, y, rcond=None)[0]
@@ -313,19 +302,17 @@ def detect_corners_region_edge(
         c = b
         return a, b2, c
 
-
     def intersect(line1, line2):
-        a1,b1,c1 = line1
-        a2,b2,c2 = line2
+        a1, b1, c1 = line1
+        a2, b2, c2 = line2
 
-        d = a1*b2 - a2*b1
+        d = a1 * b2 - a2 * b1
         if abs(d) < 1e-9:
             return None  # 平行
 
-        w = (b1*c2 - b2*c1) / d
-        h = (c1*a2 - c2*a1) / d
-        return np.array([h,w], dtype=float)
-
+        w = (b1 * c2 - b2 * c1) / d
+        h = (c1 * a2 - c2 * a1) / d
+        return np.array([h, w], dtype=float)
 
     cut_w_line_len = int(W * 0.1)
     cut_h_line_len = int(H * 0.1)
@@ -340,32 +327,30 @@ def detect_corners_region_edge(
     top_head = top[:cut_w_line_len, :]
     top_tail = top[-cut_w_line_len:, :]
 
-    bottom_head = bottom[ :cut_w_line_len, :]
+    bottom_head = bottom[:cut_w_line_len, :]
     bottom_tail = bottom[-cut_w_line_len:, :]
 
     left_head = left[:cut_h_line_len, :]
-    left_tail = left[-cut_h_line_len:, :] 
+    left_tail = left[-cut_h_line_len:, :]
 
     right_head = right[:cut_h_line_len, :]
-    right_tail = right[-cut_h_line_len:, :] 
-
+    right_tail = right[-cut_h_line_len:, :]
 
     # 拟合 8 条直线
-    L_top_head    = fit_line(top_head)
-    L_top_tail    = fit_line(top_tail)
+    L_top_head = fit_line(top_head)
+    L_top_tail = fit_line(top_tail)
     L_bottom_head = fit_line(bottom_head)
     L_bottom_tail = fit_line(bottom_tail)
-    L_left_head   = fit_line(left_head)
-    L_left_tail   = fit_line(left_tail)
-    L_right_head  = fit_line(right_head)
-    L_right_tail  = fit_line(right_tail)
+    L_left_head = fit_line(left_head)
+    L_left_tail = fit_line(left_tail)
+    L_right_head = fit_line(right_head)
+    L_right_tail = fit_line(right_tail)
 
     # ---------- 求四个角 ----------
-    TL = intersect(L_top_head,    L_left_head)
-    TR = intersect(L_top_tail,    L_right_head)
+    TL = intersect(L_top_head, L_left_head)
+    TR = intersect(L_top_tail, L_right_head)
     BR = intersect(L_bottom_tail, L_right_tail)
     BL = intersect(L_bottom_head, L_left_tail)
-
 
     # child_ordered=child_ordered
     corners = np.array([TL, TR, BR, BL], dtype=float)
@@ -377,31 +362,30 @@ def detect_corners_region_edge(
     vis_lines = cv2.cvtColor(mask_black_frame, cv2.COLOR_GRAY2BGR)
 
     colors1 = {
-        "top_head":    (0,   0, 255),   # 红
-        "top_tail":    (0, 255, 255),   # 黄
-        "bottom_head": (0, 255, 0),     # 绿
-        "bottom_tail": (255,255, 0),    # 青
-        "left_head":   (255, 0, 0),     # 蓝
-        "left_tail":   (255, 0,255),    # 紫
-        "right_head":  (255,128, 0),    # 橙
-        "right_tail":  (128,255,128),   # 淡绿
+        "top_head": (0, 0, 255),  # 红
+        "top_tail": (0, 255, 255),  # 黄
+        "bottom_head": (0, 255, 0),  # 绿
+        "bottom_tail": (255, 255, 0),  # 青
+        "left_head": (255, 0, 0),  # 蓝
+        "left_tail": (255, 0, 255),  # 紫
+        "right_head": (255, 128, 0),  # 橙
+        "right_tail": (128, 255, 128),  # 淡绿
     }
 
-    draw_line(vis_lines, L_top_head,    colors1["top_head"],    2)
-    draw_line(vis_lines, L_top_tail,    colors1["top_tail"],    2)
+    draw_line(vis_lines, L_top_head, colors1["top_head"], 2)
+    draw_line(vis_lines, L_top_tail, colors1["top_tail"], 2)
     draw_line(vis_lines, L_bottom_head, colors1["bottom_head"], 2)
     draw_line(vis_lines, L_bottom_tail, colors1["bottom_tail"], 2)
-    draw_line(vis_lines, L_left_head,   colors1["left_head"],   2)
-    draw_line(vis_lines, L_left_tail,   colors1["left_tail"],   2)
-    draw_line(vis_lines, L_right_head,  colors1["right_head"],  2)
-    draw_line(vis_lines, L_right_tail,  colors1["right_tail"],  2)
+    draw_line(vis_lines, L_left_head, colors1["left_head"], 2)
+    draw_line(vis_lines, L_left_tail, colors1["left_tail"], 2)
+    draw_line(vis_lines, L_right_head, colors1["right_head"], 2)
+    draw_line(vis_lines, L_right_tail, colors1["right_tail"], 2)
 
     save_step(debugdir, "step4_fitted_8lines.jpg", vis_lines)
 
     vis4 = cv2.cvtColor(mask_black_frame, cv2.COLOR_GRAY2BGR)
     for h, w in corners:
-        cv2.circle(vis4, (int(w), int(h)), 3, (0,0,255), -1)
-
+        cv2.circle(vis4, (int(w), int(h)), 3, (0, 0, 255), -1)
 
     # 画中心线（粗线中线）
     for name, pts in centerlines.items():
@@ -411,18 +395,18 @@ def detect_corners_region_edge(
 
     save_step(debugdir, "step4_corner_fit_8lines.jpg", vis4)
 
-
-
     # ---------- Step 5: 读取原始图片 投影 ----------
-    pad_half = pad //2
+    pad_half = pad // 2
 
     ori_H, ori_W = original_img.shape[:2]
-    cut_original_img = original_img[pad_half:ori_H-pad_half, pad_half:ori_W-pad_half, ]
+    cut_original_img = original_img[
+        pad_half : ori_H - pad_half,
+        pad_half : ori_W - pad_half,
+    ]
     cut_H, cut_W = cut_original_img.shape[:2]
 
     ori_out = 255 - cut_original_img
     save_step(debugdir, "step5_1_ori_grid_points.jpg", ori_out)
-
 
     def overlay_binary_mask_on_image(base, warp, alpha=0.5):
         """
@@ -431,13 +415,11 @@ def detect_corners_region_edge(
         alpha:          红色透明度
         """
 
-
         warp[..., 0] = 0  # B
         warp[..., 1] = 0
 
-        out = base*0.5  + warp*0.5
+        out = base * 0.5 + warp * 0.5
         return out.astype(np.uint8)
-
 
     def warp_single_quad_hw(src, src_quad_hw, dst_quad_hw, out_h, out_w, dst_img):
         """
@@ -461,15 +443,15 @@ def detect_corners_region_edge(
 
         # === 5. 贴到大图（无缝） ===
         dst_img[mask == 255] = warped[mask == 255]
-    
 
-    src_corners_xy = np.float32([
-        [0, 0],
-        [0, cut_W-1],
-        [cut_H-1, cut_W-1],
-        [cut_H-1, 0],
-    ])
-
+    src_corners_xy = np.float32(
+        [
+            [0, 0],
+            [0, cut_W - 1],
+            [cut_H - 1, cut_W - 1],
+            [cut_H - 1, 0],
+        ]
+    )
 
     H, W = img.shape[:2]
     dst_img = np.zeros(img.shape, dtype=img.dtype)
@@ -482,7 +464,6 @@ def detect_corners_region_edge(
     overlay = overlay_binary_mask_on_image(clean_bin_rgb, dst_img, alpha=0.5)
     save_step(debugdir, "step5_clean_bin_mix_result.png", overlay)
 
-
     # ---------- Step6：调整四个点 ----------
     ori_out_gray = cv2.cvtColor(ori_out, cv2.COLOR_BGR2GRAY)
     ksize = 7
@@ -493,8 +474,6 @@ def detect_corners_region_edge(
     save_step(debugdir, "step6_1_ori_out_gray_blur.png", ori_out_gray_blur)
     save_step(debugdir, "step6_2_clean_bin_rgb_blurr.png", clean_bin_blur)
 
-
-
     def opt_porin(delta):
 
         def cal_iou(ori, base, src_quad, dst_quad):
@@ -502,56 +481,52 @@ def detect_corners_region_edge(
             dst_img = np.zeros(base.shape, dtype=img.dtype)
             warp_single_quad_hw(ori, src_quad, dst_quad, H, W, dst_img)
 
+            img_iou = (dst_img / 255.0) * (base / 255.0)
 
-            img_iou = (dst_img /255.0) * (base/255.0)
-
-            ov = np.sum(img_iou)/(H * W)
+            ov = np.sum(img_iou) / (H * W)
             return ov
-
 
         for i in range(4):
             corners_l = corners.copy()
-            corners_l[i,1] -= delta
+            corners_l[i, 1] -= delta
             corners_r = corners.copy()
-            corners_r[i,1] += delta
+            corners_r[i, 1] += delta
 
             iou = cal_iou(ori_out_gray_blur, clean_bin_blur, src_corners_xy, corners)
             ioul = cal_iou(ori_out_gray_blur, clean_bin_blur, src_corners_xy, corners_l)
             iour = cal_iou(ori_out_gray_blur, clean_bin_blur, src_corners_xy, corners_r)
 
-            if ioul > iou and ioul> iour:
+            if ioul > iou and ioul > iour:
                 dw = -delta
-            elif iour>iou and iour> ioul:
+            elif iour > iou and iour > ioul:
                 dw = delta
             else:
                 dw = 0
-            corners[i,1] += dw
-
+            corners[i, 1] += dw
 
         for i in range(4):
             corners_t = corners.copy()
-            corners_t[i,0] -= delta
+            corners_t[i, 0] -= delta
             corners_b = corners.copy()
-            corners_b[i,0] += delta
+            corners_b[i, 0] += delta
 
             iou = cal_iou(ori_out_gray_blur, clean_bin_blur, src_corners_xy, corners)
             iout = cal_iou(ori_out_gray_blur, clean_bin_blur, src_corners_xy, corners_t)
             ioub = cal_iou(ori_out_gray_blur, clean_bin_blur, src_corners_xy, corners_b)
 
-            if iout > iou and iout> ioub:
+            if iout > iou and iout > ioub:
                 dh = -delta
-            elif ioub > iou and ioub> iout:
+            elif ioub > iou and ioub > iout:
                 dh = delta
             else:
                 dh = 0
 
-            corners[i,0] += dh
+            corners[i, 0] += dh
 
     iter = 5
     delta = 1
     for n in range(iter):
         opt_porin(delta)
-
 
     H, W = img.shape[:2]
     dst_img = np.zeros(img.shape, dtype=img.dtype)
@@ -560,7 +535,6 @@ def detect_corners_region_edge(
     overlay = overlay_binary_mask_on_image(img, dst_img, alpha=0.5)
     save_step(debugdir, "step6_3_img_mix_result.png", overlay)
 
-
     clean_bin_rgb = cv2.cvtColor(clean_bin_img, cv2.COLOR_GRAY2BGR)
     overlay = overlay_binary_mask_on_image(clean_bin_rgb, dst_img, alpha=0.5)
     save_step(debugdir, "step6_4_clean_bin_mix_result.png", overlay)
@@ -568,7 +542,11 @@ def detect_corners_region_edge(
     src_quad_xy = np.float32([[w, h] for h, w in src_corners_xy])
     dst_quad_xy = np.float32([[w, h] for h, w in corners])
 
-    return src_quad_xy, dst_quad_xy
+    clean_mask = clean_bin_img / 255.0
+    iou = (dst_img[..., 2] / 225.0 * clean_mask).sum() / clean_mask.sum()
+
+    return src_quad_xy, dst_quad_xy, iou
+
 
 def decode(
     filepath,
@@ -619,7 +597,7 @@ def decode(
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     # gray_canny = cv2.dilate(gray_canny, kernel, iterations=1)
     gray_canny = cv2.morphologyEx(gray_canny, cv2.MORPH_CLOSE, kernel, iterations=1)
-    cv2.imwrite(os.path.join(debugdir, 'gray_canny.png'), gray_canny)
+    cv2.imwrite(os.path.join(debugdir, "gray_canny.png"), gray_canny)
 
     # 寻找大四边形的轮廓
     contours, hierarchys = cv2.findContours(
@@ -792,7 +770,7 @@ def decode(
     # 获取变换矩阵
     # src_corners_xy : label 的坐标
     # dst_quad_xy ： 拍照图的坐标
-    src_quad_xy, dst_quad_xy = detect_corners_region_edge(
+    src_quad_xy, dst_quad_xy, iou = detect_corners_region_edge(
         src_image,
         label,
         border_size,
@@ -813,9 +791,17 @@ def decode(
         padlabel, M_label2child, (src_image.shape[1], src_image.shape[0])
     )
 
-    return label_size, labelname, pad, border_size, M_child2label, warped_image, M_label2child, warped_label
-
-
+    return (
+        label_size,
+        labelname,
+        pad,
+        border_size,
+        M_child2label,
+        warped_image,
+        M_label2child,
+        warped_label,
+        iou,
+    )
 
 
 def process_single_image(filepath, outputdir, labeldir):
@@ -823,80 +809,111 @@ def process_single_image(filepath, outputdir, labeldir):
     new_dir_name = str(uuid4())
     subdir = os.path.join(outputdir, new_dir_name)
     os.makedirs(subdir, exist_ok=True)
-    shutil.copy(filepath, os.path.join(subdir, 'src_image.png'))
-    result = decode(filepath, labeldir=labeldir, scale=1,
-                    arc_scale=0.01, qr_scale=0.15, min_area_scale=0.5, debugdir=subdir)
+    shutil.copy(filepath, os.path.join(subdir, "src_image.png"))
+    result = decode(
+        filepath,
+        labeldir=labeldir,
+        scale=1,
+        arc_scale=0.01,
+        qr_scale=0.15,
+        min_area_scale=0.5,
+        debugdir=subdir,
+    )
     if result is None:
-        print(f'转换失败: {filepath}')
+        print(f"转换失败: {filepath}")
         return None
     else:
-        print(f'转换成功: {filepath}')
-        label_size, labelname, pad, border_size, M_src2label, warped_image, M_label2src, warped_label = result
+        (
+            label_size,
+            labelname,
+            pad,
+            border_size,
+            M_src2label,
+            warped_image,
+            M_label2src,
+            warped_label,
+            iou,
+        ) = result
+        print(f"转换成功: iou:{iou}, {filepath}, {subdir}")
         info = {
-            'pad': pad,
-            'labelname': labelname,
-            'label_size': label_size,
-            'border_size': border_size,
-            'M_label2src': M_label2src,
-            'M_src2label': M_src2label,
+            "pad": pad,
+            "iou": iou,
+            "labelname": labelname,
+            "label_size": label_size,
+            "border_size": border_size,
+            "M_label2src": M_label2src,
+            "M_src2label": M_src2label,
         }
-        np.save(os.path.join(subdir, f'{new_dir_name}_info.npy'), info)
-        cv2.imwrite(os.path.join(subdir, f'{new_dir_name}_warped_image.png'), warped_image)
-        cv2.imwrite(os.path.join(subdir, f'{new_dir_name}_warped_label.png'), warped_label)
+        np.save(os.path.join(subdir, f"{new_dir_name}_info.npy"), info)
+        cv2.imwrite(
+            os.path.join(subdir, f"{new_dir_name}_warped_image.png"), warped_image
+        )
+        cv2.imwrite(
+            os.path.join(subdir, f"{new_dir_name}_warped_label.png"), warped_label
+        )
         debug_info = {
-            "src_img" : filepath,
-            "label_name" : labelname,
-            'pad': pad,
-            'label_size': label_size,
-            'border_size': border_size,
-            'M_label2src': M_label2src.tolist(),
-            'M_src2label': M_src2label.tolist(),
+            "src_img": filepath,
+            "label_name": labelname,
+            "pad": pad,
+            "iou": iou,
+            "label_size": label_size,
+            "border_size": border_size,
+            "M_label2src": M_label2src.tolist(),
+            "M_src2label": M_src2label.tolist(),
         }
-        with open(os.path.join(subdir, f'debug_info.json'), "w", encoding="utf-8") as f:
+        with open(os.path.join(subdir, f"debug_info.json"), "w", encoding="utf-8") as f:
             json.dump(debug_info, f, ensure_ascii=False, indent=2)
         return filepath
-
 
 
 def test_decode_img():
 
     # 单图
     # /home/glq/sp_tools/output/fc2c13e4-8316-4055-a7af-29141dd5ad1b
-    src_path = "/data/xml_data/photos/2025111901/5547dd9c-6a09-414f-a967-63ffd1314371-26.png"
+    src_path = (
+        "/data/xml_data/photos/2025111901/5547dd9c-6a09-414f-a967-63ffd1314371-26.png"
+    )
     label_dir = "/data/xml_data/generate/"
     decode(src_path, label_dir, debugdir="/home/glq/sp_tools/debug/")
 
 
 def test_single_image():
 
-
-    src_path = "/data/xml_data/photos/2025112002/20251120120655_00028.jpg"
+    src_path = (
+        "/data/xml_data/photos/2025111901/5547dd9c-6a09-414f-a967-63ffd1314371-26.png"
+    )
     label_dir = "/data/xml_data/generate/"
     process_single_image(src_path, "/home/glq/sp_tools/debug", label_dir)
 
 
 def all_convter():
-    testdir = '/data/xml_data/photos/2025111901' # 拍照图片目录
-    labeldir = '/data/xml_data/generate' # 分割标签目录
-    outputdir = "/home/glq/sp_tools/output/" # 输出目录
-    
+    testdir = "/data/xml_data/photos/2025111901"  # 拍照图片目录
+    labeldir = "/data/xml_data/generate"  # 分割标签目录
+    outputdir = "/home/glq/sp_tools/output/"  # 输出目录
+
     if os.path.exists(outputdir):
         shutil.rmtree(outputdir)
     os.makedirs(outputdir, exist_ok=True)
 
     # 解码二维码（多进程）
-    filepaths = [os.path.join(testdir, f) for f in os.listdir(testdir) if os.path.isfile(os.path.join(testdir, f))]
+    filepaths = [
+        os.path.join(testdir, f)
+        for f in os.listdir(testdir)
+        if os.path.isfile(os.path.join(testdir, f))
+    ]
 
     # 根据CPU核心数设置进程池大小，留1核心给系统
     pool_size = max(1, cpu_count() - 1)
     with Pool(processes=pool_size) as pool:
         # 使用functools.partial固定其他参数
-        worker = functools.partial(process_single_image, outputdir=outputdir, labeldir=labeldir)
+        worker = functools.partial(
+            process_single_image, outputdir=outputdir, labeldir=labeldir
+        )
         # 并行处理所有图片
         pool.map(worker, filepaths)
 
 
-
-if __name__ == '__main__':
-    test_decode_img()
-    # all_convter()
+if __name__ == "__main__":
+    # test_decode_img()
+    # test_single_image()
+    all_convter()
