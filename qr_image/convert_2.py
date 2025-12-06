@@ -22,6 +22,7 @@ def detect_corners_region_edge(
     debugdir="",
 ):
 
+    pad_half = pad // 2
     # ---------- Step 0: 读取拍照图片 ----------
     save_step(debugdir, "step0_original.jpg", img)
 
@@ -56,9 +57,9 @@ def detect_corners_region_edge(
     )
 
     # 排除背景 label=0，选择 bbox 面积最大的
-    widths  = stats[1:, cv2.CC_STAT_WIDTH]
+    widths = stats[1:, cv2.CC_STAT_WIDTH]
     heights = stats[1:, cv2.CC_STAT_HEIGHT]
-    bbox_areas = widths * heights          # 外接矩形的宽 * 高
+    bbox_areas = widths * heights  # 外接矩形的宽 * 高
 
     max_label = np.argmax(bbox_areas) + 1  # +1 因为排除了背景
 
@@ -295,7 +296,6 @@ def detect_corners_region_edge(
         if len(pts) >= 2:
             cv2.line(vis, pts[0], pts[1], color, thickness)
 
-
     def fit_line(points: np.ndarray, eps: float = 4):
         """
         最小二乘拟合直线 a*x + b*y + c = 0
@@ -347,7 +347,6 @@ def detect_corners_region_edge(
         c = b0
         return a, b2, c
 
-
     def intersect(line1, line2):
         a1, b1, c1 = line1
         a2, b2, c2 = line2
@@ -398,10 +397,24 @@ def detect_corners_region_edge(
     BR = intersect(L_bottom_tail, L_right_tail)
     BL = intersect(L_bottom_head, L_left_tail)
 
-    child_ordered=child_ordered
+    # TODO :
+    child_ordered_hw = np.float32([[h, w] for w, h in child_ordered])
+
+    child_ordered_hw[0] = child_ordered_hw[0] - pad_half
+    child_ordered_hw[1] = [
+        child_ordered_hw[1][0] - pad_half,
+        child_ordered_hw[1][1] + pad_half,
+    ]
+    child_ordered_hw[2] = child_ordered_hw[2] + pad_half
+    child_ordered_hw[3] = [
+        child_ordered_hw[3][0] + pad_half,
+        child_ordered_hw[3][1] - pad_half,
+    ]
 
     corners = np.array([TL, TR, BR, BL], dtype=float)
 
+    if np.abs(corners - child_ordered_hw).sum() > pad * 4:
+        corners = child_ordered_hw
     # ---------- 可视化 ----------
 
     # ---------- Step4：可视化 8 条拟合线 ----------
@@ -443,7 +456,6 @@ def detect_corners_region_edge(
     save_step(debugdir, "step4_corner_fit_8lines.jpg", vis4)
 
     # ---------- Step 5: 读取原始图片 投影 ----------
-    pad_half = pad // 2
 
     ori_H, ori_W = original_img.shape[:2]
     cut_original_img = original_img[
@@ -854,6 +866,7 @@ def decode(
         print("detect_corners_region_edge error:", repr(e))
         print(filepath)
         return None
+
 
 def process_single_image(filepath, outputdir, labeldir):
     """单张图片处理函数，供多进程调用"""
