@@ -5,3 +5,7 @@ outputs/**
 qr_image/images/**
 qr_image/labels/**
 qr_image/test/**
+debug_*
+test_data
+output
+.vscode
