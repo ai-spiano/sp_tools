@@ -43,13 +43,24 @@ def detect_corners_region_edge(
     )
     save_step(debugdir, "step2_binary.jpg", bin_img)
     # ---------- Step 2.2: 连通域分析（只保留最大区域 = 黑框） ----------
+    # num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+    #     bin_img, connectivity=8
+    # )
+
+    # # 排除背景 label=0，选择面积最大的
+    # areas = stats[1:, cv2.CC_STAT_AREA]
+    # max_label = np.argmax(areas) + 1  # +1 因为排除了背景
+
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
         bin_img, connectivity=8
     )
 
-    # 排除背景 label=0，选择面积最大的
-    areas = stats[1:, cv2.CC_STAT_AREA]
-    max_label = np.argmax(areas) + 1  # +1 因为排除了背景
+    # 排除背景 label=0，选择 bbox 面积最大的
+    widths  = stats[1:, cv2.CC_STAT_WIDTH]
+    heights = stats[1:, cv2.CC_STAT_HEIGHT]
+    bbox_areas = widths * heights          # 外接矩形的宽 * 高
+
+    max_label = np.argmax(bbox_areas) + 1  # +1 因为排除了背景
 
     # 得到黑框 mask
     mask_black_frame = (labels == max_label).astype(np.uint8) * 255
@@ -284,23 +295,58 @@ def detect_corners_region_edge(
         if len(pts) >= 2:
             cv2.line(vis, pts[0], pts[1], color, thickness)
 
-    def fit_line(points):
-        """
-        最小二乘拟合直线 ax + by + c = 0
-        输入: points (N,2)
-        输出: (a,b,c)
-        """
-        x = points[:, 1]
-        y = points[:, 0]
-        # 拟合 y = kx + b
-        A = np.vstack([x, np.ones_like(x)]).T
-        k, b = np.linalg.lstsq(A, y, rcond=None)[0]
 
-        # 转换成 ax + by + c = 0 → kx - y + b = 0
+    def fit_line(points: np.ndarray, eps: float = 4):
+        """
+        最小二乘拟合直线 a*x + b*y + c = 0
+        输入: points (N,2)，(h,w) 或 (y,x)
+        输出: (a,b,c)
+
+        特判：
+        - 竖直线：所有 x 基本相等 → x = x0
+        - 水平线：所有 y 基本相等 → y = y0
+        """
+        # 按你原来的约定：
+        # x = w, y = h
+        x = points[:, 1].astype(np.float64)
+        y = points[:, 0].astype(np.float64)
+
+        dx = x.max() - x.min()
+        dy = y.max() - y.min()
+
+        # 所有点几乎重合，退化情况
+        if dx < eps and dy < eps:
+            # 自己按需要处理，这里先返回 0,0,0
+            return 0.0, 0.0, 0.0
+
+        # ==== 特判竖直线：x ≈ 常数 ====
+        if dx < eps:
+            x0 = x.mean()
+            # x - x0 = 0  →  1*x + 0*y - x0 = 0
+            a = 1.0
+            b = 0.0
+            c = -x0
+            return a, b, c
+
+        # ==== 特判水平线：y ≈ 常数 ====
+        if dy < eps:
+            y0 = y.mean()
+            # y - y0 = 0  →  0*x + 1*y - y0 = 0
+            a = 0.0
+            b = 1.0
+            c = -y0
+            return a, b, c
+
+        # ==== 一般情况：按你原来的方式拟合 y = kx + b ====
+        A = np.vstack([x, np.ones_like(x)]).T
+        k, b0 = np.linalg.lstsq(A, y, rcond=None)[0]
+
+        # 转为 a*x + b*y + c = 0  →  kx - y + b0 = 0
         a = k
-        b2 = -1
-        c = b
+        b2 = -1.0
+        c = b0
         return a, b2, c
+
 
     def intersect(line1, line2):
         a1, b1, c1 = line1
@@ -352,7 +398,8 @@ def detect_corners_region_edge(
     BR = intersect(L_bottom_tail, L_right_tail)
     BL = intersect(L_bottom_head, L_left_tail)
 
-    # child_ordered=child_ordered
+    child_ordered=child_ordered
+
     corners = np.array([TL, TR, BR, BL], dtype=float)
 
     # ---------- 可视化 ----------
@@ -770,39 +817,43 @@ def decode(
     # 获取变换矩阵
     # src_corners_xy : label 的坐标
     # dst_quad_xy ： 拍照图的坐标
-    src_quad_xy, dst_quad_xy, iou = detect_corners_region_edge(
-        src_image,
-        label,
-        border_size,
-        child_ordered=child_ordered,
-        debugdir=debugdir,
-    )
+    try:
+        src_quad_xy, dst_quad_xy, iou = detect_corners_region_edge(
+            src_image,
+            label,
+            border_size,
+            child_ordered=child_ordered,
+            debugdir=debugdir,
+        )
 
-    # 计算 原图 到标签的透视变换矩阵
-    M_child2label = cv2.getPerspectiveTransform(dst_quad_xy, src_quad_xy)
-    warped_image = cv2.warpPerspective(
-        src_image, M_child2label, (label_w + border_size, label_h + border_size)
-    )
-    warped_image = warped_image[border_size + pad :, border_size:]
+        # 计算 原图 到标签的透视变换矩阵
+        M_child2label = cv2.getPerspectiveTransform(dst_quad_xy, src_quad_xy)
+        warped_image = cv2.warpPerspective(
+            src_image, M_child2label, (label_w + border_size, label_h + border_size)
+        )
+        warped_image = warped_image[border_size + pad :, border_size:]
 
-    # 计算label到原图的透视变换矩阵
-    M_label2child = cv2.getPerspectiveTransform(src_quad_xy, dst_quad_xy)
-    warped_label = cv2.warpPerspective(
-        padlabel, M_label2child, (src_image.shape[1], src_image.shape[0])
-    )
+        # 计算label到原图的透视变换矩阵
+        M_label2child = cv2.getPerspectiveTransform(src_quad_xy, dst_quad_xy)
+        warped_label = cv2.warpPerspective(
+            padlabel, M_label2child, (src_image.shape[1], src_image.shape[0])
+        )
 
-    return (
-        label_size,
-        labelname,
-        pad,
-        border_size,
-        M_child2label,
-        warped_image,
-        M_label2child,
-        warped_label,
-        iou,
-    )
-
+        return (
+            label_size,
+            labelname,
+            pad,
+            border_size,
+            M_child2label,
+            warped_image,
+            M_label2child,
+            warped_label,
+            iou,
+        )
+    except Exception as e:
+        print("detect_corners_region_edge error:", repr(e))
+        print(filepath)
+        return None
 
 def process_single_image(filepath, outputdir, labeldir):
     """单张图片处理函数，供多进程调用"""
@@ -870,8 +921,10 @@ def test_decode_img():
 
     # 单图
     # /home/glq/sp_tools/output/fc2c13e4-8316-4055-a7af-29141dd5ad1b
+    # /data/xml_data/photos/2025111901/c4163022-75bd-4027-ade9-162704ea83b6-35.png
+    # "/data/xml_data/photos/2025111901/39203ef4-9332-4cbd-a509-93174583caec-04.png"
     src_path = (
-        "/data/xml_data/photos/2025111901/5547dd9c-6a09-414f-a967-63ffd1314371-26.png"
+        "/data/xml_data/photos/2025111901/c4163022-75bd-4027-ade9-162704ea83b6-35.png"
     )
     label_dir = "/data/xml_data/generate/"
     decode(src_path, label_dir, debugdir="/home/glq/sp_tools/debug/")
@@ -879,8 +932,12 @@ def test_decode_img():
 
 def test_single_image():
 
+    # "/data/xml_data/photos/2025111901/c4163022-75bd-4027-ade9-162704ea83b6-10.png"
+    # "/data/xml_data/photos/2025111901/c4163022-75bd-4027-ade9-162704ea83b6-35.png"
+    # /data/xml_data/photos/2025111901/6dc3d7d7-bd1a-41f4-8697-d5f1d00e886e-61.png
+    # "/data/xml_data/photos/2025111901/3d0a281e-bb9b-446d-833e-9e6043ad8298-37.png"
     src_path = (
-        "/data/xml_data/photos/2025111901/5547dd9c-6a09-414f-a967-63ffd1314371-26.png"
+        "/data/xml_data/photos/2025111901/3d0a281e-bb9b-446d-833e-9e6043ad8298-37.png"
     )
     label_dir = "/data/xml_data/generate/"
     process_single_image(src_path, "/home/glq/sp_tools/debug", label_dir)
